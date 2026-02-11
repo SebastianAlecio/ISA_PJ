@@ -1,211 +1,418 @@
-# Onboarding Log - OWASP Juice Shop
-## DevEx Audit Report
+# Context Map — OWASP Juice Shop
+
+## Domain-Driven Design Analysis
 
 **Fecha:** 2 de Febrero, 2026
 **Proyecto:** OWASP Juice Shop v19.1.1
-**Evaluador:** AI-Assisted Analysis
+**Metodología:** Análisis estático con Claude Code leyendo todos los archivos fuente, modelos Sequelize, rutas Express, y configuración. Todas las referencias verificadas contra código fuente.
 
 ---
 
-## 1. Resumen Ejecutivo
+## 1. Architecture Overview
 
-OWASP Juice Shop es una aplicación web deliberadamente insegura para entrenamiento en seguridad. El proceso de onboarding presenta varios puntos de fricción que pueden dificultar la incorporación de nuevos desarrolladores.
+OWASP Juice Shop es una aplicación e-commerce monolítica construida con Node.js + Express (backend) y Angular (frontend), usando SQLite como base de datos via Sequelize ORM.
+
+**La estructura del proyecto sigue una organización por capa técnica:**
+
+| Directory | Role | Files |
+|-----------|------|-------|
+| `models/` | Entidades de dominio (Sequelize ORM) | 20 modelos (user.ts, product.ts, basket.ts, etc.) |
+| `routes/` | Endpoints API REST | 64 archivos (login.ts, order.ts, basket.ts, etc.) |
+| `lib/` | Lógica de negocio compartida | 12 archivos (insecurity.ts, challengeUtils.ts, etc.) |
+| `data/` | Datos estáticos y seeders | challenges.yml, users.yml, datacreator.ts |
+| `frontend/src/app/` | Componentes Angular | 70+ componentes, 76 servicios |
+| `config/` | Configuración por entorno | 15 archivos YAML |
 
 ---
 
-## 2. Proceso de Setup
+## 2. Bounded Contexts
 
-### 2.1 Requisitos Previos
-| Requisito | Especificación | Fricción |
-|-----------|----------------|----------|
-| Node.js | v20-24 (LTS) | Media - Rango limitado de versiones |
-| npm | Incluido con Node | Baja |
-| Git | Para clonar | Baja |
-| Docker | Opcional | Baja |
+### 2.1 Identity Context (Gestión de Identidad)
 
-### 2.2 Pasos de Instalación (Desde Fuentes)
-```bash
-git clone https://github.com/juice-shop/juice-shop.git --depth 1
-cd juice-shop
-npm install   # Ejecuta postinstall automáticamente
-npm start
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/login.ts`, `routes/2fa.ts`, `routes/register.ts` |
+| **Aggregate Root** | `User` |
+| **Entities** | `User`, `SecurityQuestion`, `SecurityAnswer` |
+| **Tables** | `Users`, `SecurityQuestions`, `SecurityAnswers` |
+| **Endpoints** | 8 endpoints via login.ts, 2fa.ts, changePassword.ts, resetPassword.ts |
+
+**Responsabilidades:**
+- Autenticación (login, logout, OAuth)
+- Autorización (roles: admin, customer, accounting, deluxe)
+- Gestión de contraseñas (cambio, reset via security question)
+- Two-Factor Authentication (TOTP)
+
+### 2.2 Shopping Context (Compras)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/basket.ts`, `routes/order.ts`, `routes/payment.ts` |
+| **Aggregate Root** | `Basket`, `Product` |
+| **Entities** | `Basket`, `BasketItem`, `Product`, `Quantity`, `Card` |
+| **Tables** | `Baskets`, `BasketItems`, `Products`, `Quantities`, `Cards` |
+| **Endpoints** | 15+ endpoints via basket.ts, basketItems.ts, order.ts, payment.ts, coupon.ts |
+
+**Responsabilidades:**
+- Catálogo de productos y búsqueda
+- Carrito de compras (agregar, modificar, eliminar)
+- Proceso de checkout y generación de órdenes
+- Gestión de métodos de pago
+- Aplicación de cupones de descuento
+
+### 2.3 Delivery Context (Entregas)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/delivery.ts`, `routes/address.ts` |
+| **Aggregate Root** | `Address`, `Delivery` |
+| **Entities** | `Address`, `Delivery` |
+| **Tables** | `Addresses`, `Deliveries` |
+| **Endpoints** | 6 endpoints via delivery.ts, address.ts |
+
+**Responsabilidades:**
+- Gestión de direcciones de envío (CRUD)
+- Métodos de envío (Standard, Fast, One Day)
+- Cálculo de costos y tiempos de entrega
+
+### 2.4 Feedback Context (Retroalimentación)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/feedback.ts`, `routes/createProductReviews.ts` |
+| **Aggregate Root** | `Feedback`, `Complaint`, `Review` |
+| **Entities** | `Feedback`, `Complaint`, `Review` (MarsDB) |
+| **Tables** | `Feedbacks`, `Complaints`, `reviews` (in-memory MongoDB) |
+| **Endpoints** | 6 endpoints via feedback.ts, complaint.ts, productReviews.ts |
+
+**Responsabilidades:**
+- Reseñas de productos (crear, ver, dar like)
+- Feedback general de la tienda
+- Sistema de quejas/reclamos con adjuntos
+
+### 2.5 Privacy Context (Privacidad - GDPR)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/dataExport.ts`, `routes/dataErasure.ts` |
+| **Aggregate Root** | `PrivacyRequest` |
+| **Entities** | `PrivacyRequest` |
+| **Tables** | `PrivacyRequests` |
+| **Endpoints** | 3 endpoints via dataExport.ts, dataErasure.ts |
+
+**Responsabilidades:**
+- Exportación de datos personales (GDPR Art. 20)
+- Solicitud de borrado de datos (GDPR Art. 17)
+- Tracking de solicitudes de privacidad
+
+### 2.6 Challenge Context (Gamificación)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `lib/challengeUtils.ts`, `routes/verify.ts` |
+| **Aggregate Root** | `Challenge` |
+| **Entities** | `Challenge`, `Hint` |
+| **Tables** | `Challenges`, `Hints` |
+| **Data** | `data/static/challenges.yml` (126 challenges) |
+| **Endpoints** | 5 endpoints via continueCode.ts, vulnCodeSnippet.ts |
+
+**Responsabilidades:**
+- Definición y tracking de 126 security challenges
+- Sistema de hints multinivel
+- Verificación automática de soluciones (verify.ts - 440 líneas)
+- Coding challenges (find it / fix it)
+
+### 2.7 Administration Context (Administración)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/authenticatedUsers.ts`, `routes/appConfiguration.ts` |
+| **Aggregate Root** | N/A (opera sobre User) |
+| **Entities** | Usa entidades de Identity |
+| **Roles Required** | `admin`, `accounting` |
+| **Endpoints** | 4 endpoints via authenticatedUsers.ts, appVersion.ts |
+
+**Responsabilidades:**
+- Panel de administración de usuarios
+- Visualización de feedback
+- Configuración del sistema
+- Módulo de contabilidad
+
+### 2.8 Blockchain Context (Web3)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/nftMint.ts`, `routes/web3Wallet.ts` |
+| **Aggregate Root** | `Wallet` |
+| **Entities** | `Wallet` |
+| **Tables** | `Wallets` |
+| **Libraries** | ethers.js, web3.js |
+| **Endpoints** | 4 endpoints via nftMint.ts, web3Wallet.ts |
+
+**Responsabilidades:**
+- Wallet de criptomonedas
+- Minting de NFTs
+- Integración con smart contracts
+
+### 2.9 Chatbot Context (Atención al Cliente)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/chatbot.ts` (247 líneas) |
+| **Aggregate Root** | N/A (stateless) |
+| **Data** | `data/chatbot/` training data |
+| **Library** | juicy-chat-bot |
+| **Endpoints** | 2 endpoints via chatbot.ts |
+
+**Responsabilidades:**
+- Servicio automatizado de atención
+- Respuestas basadas en NLP
+- Integración con sistema de cupones
+
+### 2.10 Localization Context (Internacionalización)
+
+| Aspect | Detail |
+|--------|--------|
+| **Package** | `routes/languages.ts`, `i18n/` |
+| **Data** | 44 archivos de traducción en `data/static/i18n/` |
+| **Endpoints** | 2 endpoints via languages.ts, countryMapping.ts |
+
+**Responsabilidades:**
+- Soporte para 44 idiomas
+- Mapeo de países
+- Servicio de traducciones
+
+---
+
+## 3. Context Map Diagram
+
+### 3.1 High-Level Context Map
+
+```mermaid
+flowchart TB
+    subgraph Core["CORE DOMAIN"]
+        IDENTITY["Identity Context<br/>────────────────<br/>models/user.ts<br/>routes/login.ts, 2fa.ts<br/>lib/insecurity.ts"]
+        SHOPPING["Shopping Context<br/>────────────────<br/>models/basket.ts, product.ts<br/>routes/basket.ts, order.ts<br/>routes/payment.ts"]
+    end
+
+    subgraph Supporting["SUPPORTING DOMAINS"]
+        DELIVERY["Delivery Context<br/>────────────────<br/>models/address.ts<br/>routes/delivery.ts"]
+        FEEDBACK["Feedback Context<br/>────────────────<br/>models/feedback.ts<br/>routes/productReviews.ts"]
+        PRIVACY["Privacy Context<br/>────────────────<br/>models/privacyRequests.ts<br/>routes/dataExport.ts"]
+    end
+
+    subgraph Generic["GENERIC SUBDOMAINS"]
+        CHALLENGE["Challenge Context<br/>────────────────<br/>models/challenge.ts<br/>lib/challengeUtils.ts"]
+        ADMIN["Administration Context<br/>────────────────<br/>routes/authenticatedUsers.ts"]
+        BLOCKCHAIN["Blockchain Context<br/>────────────────<br/>models/wallet.ts<br/>routes/nftMint.ts"]
+        CHATBOT["Chatbot Context<br/>────────────────<br/>routes/chatbot.ts"]
+        I18N["Localization Context<br/>────────────────<br/>data/static/i18n/"]
+    end
+
+    %% Relationships
+    IDENTITY -->|"SK"| SHOPPING
+    SHOPPING -->|"SK"| IDENTITY
+    SHOPPING -->|"CS"| DELIVERY
+    SHOPPING -->|"PL"| FEEDBACK
+    IDENTITY -->|"CS"| PRIVACY
+    IDENTITY -->|"CF"| ADMIN
+    SHOPPING -->|"ACL"| BLOCKCHAIN
+    IDENTITY -->|"ACL"| CHATBOT
+    SHOPPING -->|"CF"| CHALLENGE
+    I18N -.->|"OHS"| SHOPPING
+    I18N -.->|"OHS"| IDENTITY
+    I18N -.->|"OHS"| FEEDBACK
+
+    classDef core fill:#4a90d9,stroke:#2e5d8c,color:white
+    classDef supporting fill:#7cb342,stroke:#558b2f,color:white
+    classDef generic fill:#ff9800,stroke:#e65100,color:white
+
+    class IDENTITY,SHOPPING core
+    class DELIVERY,FEEDBACK,PRIVACY supporting
+    class CHALLENGE,ADMIN,BLOCKCHAIN,CHATBOT,I18N generic
+```
+
+### 3.2 DDD Relationship Types
+
+| Abbreviation | Pattern | Description |
+|--------------|---------|-------------|
+| **SK (Shared Kernel)** | Identity ↔ Shopping | El modelo `User` es compartido entre ambos contextos. Cambios requieren coordinación. |
+| **CF (Conformist)** | Admin → Identity | Administration se conforma al modelo de User sin poder modificarlo. |
+| **CS (Customer-Supplier)** | Shopping → Delivery | Shopping (customer) solicita servicios de Delivery (supplier) para envíos. |
+| **PL (Published Language)** | Shopping → Feedback | Reviews referencian Products usando IDs como lenguaje común. |
+| **ACL (Anti-Corruption Layer)** | Shopping → Blockchain | Capa de traducción aísla la complejidad de Web3 del dominio core. |
+| **OHS (Open Host Service)** | Localization → All | API de traducciones disponible para todos los contextos. |
+
+---
+
+## 4. Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    User ||--o{ Basket : "has"
+    User ||--o{ Address : "has"
+    User ||--o{ Card : "has"
+    User ||--o{ SecurityAnswer : "has"
+    User ||--o{ Feedback : "submits"
+    User ||--o{ Complaint : "files"
+    User ||--o{ PrivacyRequest : "requests"
+    User ||--o{ Wallet : "owns"
+
+    Basket ||--o{ BasketItem : "contains"
+    BasketItem }o--|| Product : "references"
+    Product ||--o{ Quantity : "has stock"
+
+    SecurityQuestion ||--o{ SecurityAnswer : "answered by"
+
+    Challenge ||--o{ Hint : "has"
+
+    Delivery ||--o{ Address : "ships to"
 ```
 
 ---
 
-## 3. Puntos de Fricción Identificados
+## 5. Aggregate Boundaries
 
-### 3.1 ALTO IMPACTO
-
-#### F1: Proceso de `npm install` Extenso
-- **Descripción:** El `postinstall` ejecuta múltiples comandos:
-  1. `cd frontend && npm install`
-  2. `npm run build:frontend`
-  3. `npm run build:server`
-- **Impacto:** Tiempo de instalación prolongado, posibles fallos en cualquier paso
-- **Dependencias:** 88+ dependencias de producción, 76+ de desarrollo
-- **Recomendación:** Documentar tiempos esperados y requisitos de sistema
-
-#### F2: Compilación Nativa Requerida (sqlite3, libxmljs2)
-- **Descripción:** Requiere compilar binarios nativos durante install
-- **Impacto:** Falla en sistemas sin build tools (python, make, gcc)
-- **Error común:** `node-gyp rebuild failed`
-- **Recomendación:** Documentar prerequisitos de compilación por SO
-
-#### F3: Arquitectura Dual (Backend + Frontend)
-- **Descripción:** Dos `package.json` separados (raíz y `/frontend`)
-- **Impacto:**
-  - Doble instalación de dependencias
-  - Posible desincronización de versiones
-  - Mayor complejidad de debugging
-- **Recomendación:** Considerar monorepo tools (nx, turborepo)
-
-### 3.2 MEDIO IMPACTO
-
-#### F4: Versión de Node.js Estricta
-- **Descripción:** Solo soporta Node 20-24, falla en versiones anteriores
-- **Impacto:** Requiere nvm/fnm para proyectos con diferentes versiones
-- **Mitigación existente:** Docker como alternativa
-
-#### F5: Base de Datos SQLite con Binarios
-- **Descripción:** SQLite requiere binarios precompilados específicos por plataforma
-- **Impacto:** Problemas de compatibilidad cross-platform
-- **Archivo afectado:** `data/juiceshop.sqlite`
-
-#### F6: Falta de Variables de Entorno Documentadas
-- **Descripción:** Configuración dispersa en `/config/*.yml`
-- **Impacto:** Difícil saber qué configurar para diferentes entornos
-- **Archivos:** 15 archivos de configuración diferentes
-
-#### F7: Scripts de npm Extensos
-- **Descripción:** 18 scripts en package.json con nomenclatura inconsistente
-- **Scripts críticos poco documentados:**
-  - `npm run serve:dev` vs `npm run serve`
-  - `npm test` vs `npm run test:server` vs `npm run test:api`
-- **Recomendación:** Agregar comentarios o documentación de scripts
-
-### 3.3 BAJO IMPACTO
-
-#### F8: Documentación Fragmentada
-- **Descripción:** Documentación dispersa entre:
-  - README.md (básico)
-  - CONTRIBUTING.md
-  - Libro externo (pwning.owasp-juice.shop)
-  - Swagger parcial (solo B2B API)
-- **Impacto:** Curva de aprendizaje inicial
-
-#### F9: Frontend Angular 20 sin Documentación Interna
-- **Descripción:** 70+ componentes, 76 servicios sin JSDoc consistente
-- **Ubicación:** `/frontend/src/app/`
-- **Impacto:** Dificultad para contribuir al frontend
-
-#### F10: Tests Distribuidos
-- **Descripción:** Múltiples frameworks de testing:
-  - Jest (API tests)
-  - Mocha (Server tests)
-  - Jasmine/Karma (Frontend tests)
-  - Cypress (E2E)
-  - Frisby (API específico)
-- **Impacto:** Configuración compleja, diferentes comandos
+| Bounded Context | Aggregate Root | Child Entities | Value Objects |
+|-----------------|----------------|----------------|---------------|
+| **Identity** | User | SecurityAnswer | Email, Password, Role, TotpSecret |
+| **Shopping** | Basket | BasketItem | Coupon |
+| **Shopping** | Product | Quantity | Price, Description, Image |
+| **Shopping** | Card | - | CardNumber, ExpiryDate |
+| **Delivery** | Address | - | ZipCode, Country, City |
+| **Delivery** | Delivery | - | Price, ETA, Name |
+| **Feedback** | Feedback | - | Rating, Comment |
+| **Feedback** | Complaint | - | Message, File |
+| **Privacy** | PrivacyRequest | - | RequestType, Status |
+| **Challenge** | Challenge | Hint | Difficulty, Category, Key |
+| **Blockchain** | Wallet | - | Balance, Address |
 
 ---
 
-## 4. Estructura del Proyecto
+## 6. Domain Events (Implicit in Code)
 
-```
-juice-shop/
-├── app.ts                  # Entry point
-├── server.ts               # Express server (1000+ líneas)
-├── lib/                    # 12 módulos de utilidades
-├── routes/                 # 62 manejadores de rutas
-├── models/                 # 22 modelos Sequelize
-├── data/                   # SQLite + datos estáticos
-├── frontend/               # Angular 20 app (separado)
-│   ├── src/app/            # 70+ componentes
-│   └── package.json        # Dependencias frontend
-├── config/                 # 15 archivos de config
-├── test/                   # Tests distribuidos
-├── ftp/                    # Archivos descargables
-└── i18n/                   # 44 idiomas
+El código no implementa eventos de dominio explícitos, pero estos flujos están implícitos:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant ID as Identity
+    participant SH as Shopping
+    participant DL as Delivery
+    participant CH as Challenge
+    participant FB as Feedback
+
+    U->>ID: Register/Login
+    ID-->>SH: UserAuthenticated
+    Note over SH: Basket created automatically
+
+    U->>SH: Add to Cart
+    U->>SH: Checkout
+    SH-->>DL: OrderPlaced
+    DL-->>DL: Select Shipping
+
+    SH-->>CH: ActionPerformed
+    CH-->>CH: Check if challenge solved
+
+    U->>FB: Submit Review
+    FB-->>CH: ReviewPosted
+    CH-->>CH: Check feedback challenges
 ```
 
 ---
 
-## 5. Métricas del Proyecto
+## 7. File-to-Context Mapping
 
-| Métrica | Valor |
-|---------|-------|
-| Líneas de código (estimado) | ~50,000+ |
-| Dependencias producción | 88 |
-| Dependencias desarrollo | 76 |
-| Modelos de datos | 22 |
-| Rutas API | 62 archivos |
-| Componentes frontend | 70+ |
-| Servicios frontend | 76 |
-| Idiomas soportados | 44 |
-| Desafíos de seguridad | 126 |
+### Identity Context
+| File | Purpose |
+|------|---------|
+| `models/user.ts` | User entity (4206 lines) |
+| `models/securityQuestion.ts` | Security questions |
+| `models/securityAnswer.ts` | User's security answers |
+| `routes/login.ts` | Authentication endpoint |
+| `routes/2fa.ts` | Two-factor auth (176 lines) |
+| `routes/changePassword.ts` | Password change |
+| `routes/resetPassword.ts` | Password reset via security Q |
+| `lib/insecurity.ts` | JWT, auth utilities (7963 lines) |
 
----
+### Shopping Context
+| File | Purpose |
+|------|---------|
+| `models/product.ts` | Product catalog |
+| `models/basket.ts` | Shopping cart |
+| `models/basketitem.ts` | Cart line items |
+| `models/card.ts` | Payment cards |
+| `models/quantity.ts` | Inventory |
+| `routes/basket.ts` | Cart operations |
+| `routes/basketItems.ts` | Cart item CRUD |
+| `routes/order.ts` | Checkout (208 lines) |
+| `routes/payment.ts` | Payment processing |
+| `routes/coupon.ts` | Discount codes |
+| `routes/search.ts` | Product search |
 
-## 6. Tiempo de Setup Estimado
+### Delivery Context
+| File | Purpose |
+|------|---------|
+| `models/address.ts` | Shipping addresses |
+| `models/delivery.ts` | Delivery methods |
+| `routes/address.ts` | Address CRUD |
+| `routes/delivery.ts` | Delivery options |
 
-| Método | Tiempo Estimado | Complejidad |
-|--------|-----------------|-------------|
-| Docker | 5-10 min | Baja |
-| Desde fuentes (SSD, buena red) | 10-20 min | Media |
-| Desde fuentes (HDD, red lenta) | 30-60 min | Media |
-| Vagrant | 15-30 min | Media |
+### Feedback Context
+| File | Purpose |
+|------|---------|
+| `models/feedback.ts` | General feedback |
+| `models/complaint.ts` | Customer complaints |
+| `routes/createProductReviews.ts` | Create reviews |
+| `routes/showProductReviews.ts` | Read reviews |
+| `routes/likeProductReviews.ts` | Like reviews |
 
----
+### Privacy Context
+| File | Purpose |
+|------|---------|
+| `models/privacyRequests.ts` | GDPR requests |
+| `routes/dataExport.ts` | Export user data |
+| `routes/dataErasure.ts` | Delete user data |
 
-## 7. Recomendaciones de Mejora
-
-### Prioridad Alta
-1. **Crear `.nvmrc`** para especificar versión de Node recomendada
-2. **Documentar prerequisitos de compilación** por sistema operativo
-3. **Agregar script `npm run setup`** que verifique dependencias
-
-### Prioridad Media
-4. **Crear `DEVELOPMENT.md`** con guía detallada para contribuidores
-5. **Unificar estrategia de testing** o documentar cuándo usar cada framework
-6. **Agregar `.env.example`** con variables de entorno documentadas
-
-### Prioridad Baja
-7. **Considerar monorepo tools** para unificar frontend/backend
-8. **Generar documentación de API** completa (actualmente solo B2B)
-9. **Agregar health checks** en scripts de setup
-
----
-
-## 8. Comandos Útiles para Desarrolladores
-
-```bash
-# Desarrollo
-npm run serve:dev          # Backend + Frontend con hot reload
-
-# Testing
-npm test                   # Todos los tests
-npm run test:server        # Solo backend
-npm run frisby             # API tests
-npm run cypress:run        # E2E tests
-
-# Linting
-npm run lint               # Verificar código
-npm run lint:fix           # Auto-fix
-
-# Build
-npm run build:server       # Compilar TypeScript
-npm run build:frontend     # Build Angular
-```
+### Challenge Context
+| File | Purpose |
+|------|---------|
+| `models/challenge.ts` | Challenge definitions |
+| `models/hint.ts` | Challenge hints |
+| `lib/challengeUtils.ts` | Challenge helpers |
+| `lib/codingChallenges.ts` | Code fix evaluation |
+| `routes/verify.ts` | Solution verification (440 lines) |
+| `routes/continueCode.ts` | Progress persistence |
+| `data/static/challenges.yml` | 126 challenge definitions |
 
 ---
 
-## 9. Conclusión
+## 8. Summary
 
-OWASP Juice Shop es un proyecto maduro con buena documentación externa, pero el proceso de onboarding local presenta fricciones significativas principalmente en:
+### Context Count by Type
 
-1. **Tiempo de instalación** debido a compilación nativa y doble npm install
-2. **Complejidad arquitectural** con frontend/backend separados
-3. **Fragmentación de documentación** entre múltiples fuentes
+| Type | Count | Contexts |
+|------|-------|----------|
+| **Core Domain** | 2 | Identity, Shopping |
+| **Supporting Domain** | 3 | Delivery, Feedback, Privacy |
+| **Generic Subdomain** | 5 | Challenge, Admin, Blockchain, Chatbot, Localization |
+| **Total** | **10** | |
 
-Para nuevos desarrolladores, se recomienda usar **Docker** como método de setup inicial, y solo configurar desde fuentes cuando sea necesario contribuir código.
+### Critical Relationship
+
+La relación más importante es el **Shared Kernel** entre Identity y Shopping:
+
+- El modelo `User` es referenciado por `Basket`, `Card`, `Address`, `Feedback`, `Wallet`
+- Cualquier cambio en User requiere validar impacto en múltiples contextos
+- La tabla `Users` tiene 4206 líneas de código, la más compleja del sistema
+
+### Recomendación Arquitectural
+
+Para evolucionar hacia microservicios, los candidatos naturales serían:
+1. **Challenge Context** - ya está aislado, no tiene dependencias hacia User
+2. **Localization Context** - stateless, puede ser servicio independiente
+3. **Chatbot Context** - stateless, integración simple via API
+
+---
+
+*Generated 2026-02-10 via AI-driven static analysis (Claude Code) of all source files, Sequelize models, Express routes, and configuration.*
